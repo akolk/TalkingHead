@@ -47,7 +47,7 @@ export const site = {
     "en-Jenny": { lang: "en-US", id: "en-US-JennyNeural" },
     "en-Tony": { lang: "en-US", id: "en-US-TonyNeural" },
     "nl-Fenna": { lang: "nl-NL", id: "nl-NL-FennaNeural" },
-    "nl-Maarten": { lang: "nl-NL", id: "nl-NL-MaartenNeural" }.
+    "nl-Maarten": { lang: "nl-NL", id: "nl-NL-MaartenNeural" },
   },
 
   // Preset views
