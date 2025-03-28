@@ -13,9 +13,9 @@ export const site = {
       url: './avatars/smartass.glb',
       body: 'M',
       avatarMood: 'neutral',
-      fi: 'SmartiAssi' 
-    },
-  }
+      fi: 'SmartiAss'
+      ]
+  },
 
   // Google voices
   googleVoices: {
