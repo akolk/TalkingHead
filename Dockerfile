@@ -1,5 +1,5 @@
 FROM nginx:latest
 
-COPY . .
+COPY . /etc/nginx/html
 COPY nginx.conf /etc/nginx/nginx.conf
 
