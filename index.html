@@ -773,7 +773,7 @@ async function microsoftProcessQueue() {
           endpoint = microsoftTTSEndpoint;
           config = window.SpeechSDK.SpeechConfig.fromEndpoint(endpoint, apikey);
         } else {
-          endpoint = microsoftTTSProxy[0] + await jwtGet() + microsoftTTSProxy[1];
+          endpoint = microsoftTTSProxy[0] + microsoftTTSProxy[1];
           config = window.SpeechSDK.SpeechConfig.fromEndpoint(endpoint);
         }
         config.setProperty("SpeechServiceConnection_Endpoint",endpoint);
@@ -897,7 +897,7 @@ async function whisperLoadMP3(file) {
         headers["Authorization"] = "Bearer " + apikey;
       } else {
         url = openaiAudioTranscriptionsProxy;
-        headers["Authorization"] = "Bearer " + await jwtGet()
+        // headers["Authorization"] = "Bearer " 
       }
 
       const response = await fetch( url , {
@@ -1599,7 +1599,7 @@ async function openaiModerateMessage(msgs) {
     headers["Authorization"] = "Bearer " + apikey;
   } else {
     url = openaiModerationsProxy;
-    headers["Authorization"] = "Bearer " + await jwtGet()
+    // headers["Authorization"] = "Bearer " + await jwtGet()
   }
 
   const text = modMsgs.map( x => x.content );
@@ -1664,7 +1664,7 @@ async function openaiSendMessage(node,msgs) {
     headers["Authorization"] = "Bearer " + apikey;
   } else {
     url = openaiChatCompletionsProxy;
-    headers["Authorization"] = "Bearer " + await jwtGet()
+    headers["Authorization"] = "Bearer "
   }
 
   // Chat completion
@@ -2407,7 +2407,7 @@ async function geminiSendMessage(node,msgs) {
         headers["x-goog-api-key"] = apikey;
       } else {
         url = geminiProxy + cfg("ai-model") + ':streamGenerateContent?alt=sse';
-        headers["Authorization"] = "Bearer " + await jwtGet()
+        //headers["Authorization"] = "Bearer " + await jwtGet()
       }
 
       // Fetch the response from the Vertex AI API
@@ -3726,13 +3726,13 @@ document.addEventListener('DOMContentLoaded', async function(e) {
   // Create the talking head avatar
   const nodeAvatar = document.getElementById('avatar');
   head = new TalkingHead( nodeAvatar, {
-    jwtGet: jwtGet,
+    // jwtGet: jwtGet,
     ttsEndpoint: googleTTSProxy,
     cameraZoomEnable: true,
     cameraPanEnable: true,
     cameraView: 'full',
     avatarMood: 'neutral',
-    lipsyncModules: ["en", "fi", "lt"],
+    lipsyncModules: ["en", "fi", "lt", "nl" ],
     // Stats display that can be used when testing performance
     statsNode: document.body,
     statsStyle: "position: fixed; bottom: 0px; left: 0px; cursor: pointer; opacity: 0.9; z-index: 10000;"
@@ -4639,7 +4639,8 @@ document.addEventListener('DOMContentLoaded', async function(e) {
     } else {
       head.opt.ttsEndpoint = googleTTSProxy;
       head.opt.ttsApikey = null;
-      head.opt.jwtGet = jwtGet;
+      //head.opt.jwtGet = jwtGet;
+      head.opt.jwtGet = null
     }
   });
 
