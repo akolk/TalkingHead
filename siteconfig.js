@@ -14,7 +14,8 @@ export const site = {
       body: 'M',
       avatarMood: 'neutral',
       fi: 'SmartiAssi' 
-  },
+    },
+  }
 
   // Google voices
   googleVoices: {
