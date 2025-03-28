@@ -8,7 +8,12 @@ export const site = {
       body: 'F',
       avatarMood: 'neutral',
       fi: 'Brunetti'
-    }
+    },
+    'SmartAss': {
+      url: './avatars/smartass.glb',
+      body: 'M',
+      avatarMood: 'neutral',
+      fi: 'SmartiAssi' 
   },
 
   // Google voices
@@ -40,12 +45,15 @@ export const site = {
     "fi-Harri": { lang: "fi-FI", id: "fi-FI-HarriNeural" },
     "en-Jenny": { lang: "en-US", id: "en-US-JennyNeural" },
     "en-Tony": { lang: "en-US", id: "en-US-TonyNeural" },
+    "nl-Fenna": { lang: "nl-NL", id: "nl-NL-FennaNeural" },
   },
 
   // Preset views
   views: {
     'DrStrange': { url: './views/strange.jpg', type: 'image/jpg', fi: 'TohtoriOuto' },
-    'Matrix': { url: './views/matrix.mp4', type: 'video/mp4' }
+    'Matrix': { url: './views/matrix.mp4', type: 'video/mp4' },
+    'Kadaster': { url: './views/kadaster.png', type: 'image/png'},
+    'KKG': { url: './views/kkg.png', type: 'image/png' }
   },
 
   // Preset poses (includes internal poses)
@@ -90,7 +98,6 @@ export const site = {
 
   // Background ambient sounds/music
   music: {
-    'Murmur': { url: './audio/murmur.mp3', fi: 'Puheensorina'}
+    'Murmur': { url: './audio/murmur.mp3', fi: 'Puheensorina'},
   }
-
 };
