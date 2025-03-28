@@ -7,14 +7,14 @@ export const site = {
       url: './avatars/brunette.glb',
       body: 'F',
       avatarMood: 'neutral',
-      fi: 'Brunetti'
+      fi: 'Brunetti',
     },
     'SmartAss': {
       url: './avatars/smartass.glb',
       body: 'M',
       avatarMood: 'neutral',
-      fi: 'SmartiAss'
-      ]
+      fi: 'SmartiAssi'
+    }
   },
 
   // Google voices
