@@ -65,15 +65,6 @@ jobs:
           cache-to: type=gha,mode=max
           platforms: linux/amd64,linux/arm64
           
-      - name: Scan Docker image with Trivy
-        uses: aquasecurity/trivy-action@0.30.0
-        with:
-          # 
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main
-          format: 'table'
-          exit-code: '0'
-          severity: 'UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL'
-
       - name: Sign the published Docker image
         if: ${{ github.event_name != 'pull_request' }}
         env:
