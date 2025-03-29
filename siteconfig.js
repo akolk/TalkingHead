@@ -10,7 +10,7 @@ export const site = {
       fi: 'Brunetti',
     },
     'SmartAss': {
-      url: './avatars/smartass.glb',
+      url: './avatars/smartass3.glb',
       body: 'M',
       avatarMood: 'neutral',
       fi: 'SmartiAssi'
