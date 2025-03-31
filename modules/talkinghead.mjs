@@ -131,7 +131,7 @@ class TalkingHead {
       mixerGainSpeech: null,
       mixerGainBackground: null,
       lipsyncLang: 'fi',
-      lipsyncModules: ['fi','en','lt', l],
+      lipsyncModules: ['fi','en','lt', 'nl'],
       pcmSampleRate: 22050,
       modelRoot: "Armature",
       modelPixelRatio: 1,
