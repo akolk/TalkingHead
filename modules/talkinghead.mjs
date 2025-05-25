@@ -25,11 +25,13 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import Stats from 'three/addons/libs/stats.module.js';
 
 import{ DynamicBones } from './dynamicbones.mjs';
+const workletUrl = new URL('./playback-worklet.js', import.meta.url);
 
 // Temporary objects for animation loop
 const q = new THREE.Quaternion();
@@ -138,6 +140,8 @@ class TalkingHead {
       modelFPS: 30,
       modelMovementFactor: 1,
       cameraView: 'full',
+      dracoEnabled: false,
+      dracoDecoderPath: 'https://www.gstatic.com/draco/v1/decoders/',
       cameraDistance: 0,
       cameraX: 0,
       cameraY: 0,
@@ -746,23 +750,7 @@ class TalkingHead {
 
 
     // Audio context and playlist
-    this.audioCtx = new AudioContext();
-    this.audioSpeechSource = this.audioCtx.createBufferSource();
-    this.audioBackgroundSource = this.audioCtx.createBufferSource();
-    this.audioBackgroundGainNode = this.audioCtx.createGain();
-    this.audioSpeechGainNode = this.audioCtx.createGain();
-    this.audioAnalyzerNode = this.audioCtx.createAnalyser();
-    this.audioAnalyzerNode.fftSize = 256;
-    this.audioAnalyzerNode.smoothingTimeConstant = 0.1;
-    this.audioAnalyzerNode.minDecibels = -70;
-    this.audioAnalyzerNode.maxDecibels = -10;
-    this.audioReverbNode = this.audioCtx.createConvolver();
-    this.setReverb(null); // Set dry impulse as default
-    this.audioBackgroundGainNode.connect(this.audioReverbNode);
-    this.audioAnalyzerNode.connect(this.audioSpeechGainNode);
-    this.audioSpeechGainNode.connect(this.audioReverbNode);
-    this.audioReverbNode.connect(this.audioCtx.destination);
-    this.setMixerGain( this.opt.mixerGainSpeech, this.opt.mixerGainBackground ); // Volume
+    this.initAudioGraph();
     this.audioPlaylist = [];
 
     // Volume based head movement
@@ -787,6 +775,10 @@ class TalkingHead {
     this.listeningActiveDurationMax = this.opt.listeningActiveDurationMax;
     this.listeningTimer = 0;
     this.listeningTimerTotal = 0;
+
+    // Draco loading
+    this.dracoEnabled = this.opt.dracoEnabled;
+    this.dracoDecoderPath = this.opt.dracoDecoderPath;
 
     // Create a lookup table for base64 decoding
     const b64Chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
@@ -880,6 +872,61 @@ class TalkingHead {
     // Dynamic Bones
     this.dynamicbones = new DynamicBones();
 
+    // Stream speech mode
+    this.isStreaming = false;
+    this.streamWorkletNode = null;
+    this.streamAudioStartTime = 0;
+    this.streamLipsyncLang = null;
+    this.streamLipsyncType = "visemes";
+    this.streamLipsyncQueue = [];
+  }
+
+  /**
+  * Helper that re/creates the audio context and the other nodes.
+  * @param {number} sampleRate
+  */
+  initAudioGraph(sampleRate = null) {
+    // Close existing context if it exists
+    if (this.audioCtx && this.audioCtx.state !== 'closed') {
+      this.audioCtx.close();
+    }
+
+    // Create a new context
+    if (sampleRate) {
+      this.audioCtx = new AudioContext({ sampleRate });
+    } else {
+      this.audioCtx = new AudioContext();
+    }
+    
+    // Create audio nodes
+    this.audioSpeechSource = this.audioCtx.createBufferSource();
+    this.audioBackgroundSource = this.audioCtx.createBufferSource();
+    this.audioBackgroundGainNode = this.audioCtx.createGain();
+    this.audioSpeechGainNode = this.audioCtx.createGain();
+    this.audioStreamGainNode = this.audioCtx.createGain();
+    this.audioAnalyzerNode = this.audioCtx.createAnalyser();
+    this.audioAnalyzerNode.fftSize = 256;
+    this.audioAnalyzerNode.smoothingTimeConstant = 0.1;
+    this.audioAnalyzerNode.minDecibels = -70;
+    this.audioAnalyzerNode.maxDecibels = -10;
+    this.audioReverbNode = this.audioCtx.createConvolver();
+    
+    // Connect nodes
+    this.audioBackgroundGainNode.connect(this.audioReverbNode);
+    this.audioAnalyzerNode.connect(this.audioSpeechGainNode);
+    this.audioSpeechGainNode.connect(this.audioReverbNode);
+    this.audioStreamGainNode.connect(this.audioReverbNode);
+    this.audioReverbNode.connect(this.audioCtx.destination);
+    
+    // Apply reverb and mixer settings
+    this.setReverb(this.currentReverb || null);
+    this.setMixerGain(
+      this.opt.mixerGainSpeech, 
+      this.opt.mixerGainBackground
+    );
+    
+    // Reset stream worklet loaded flag to reload with the new context
+    this.workletLoaded = false;
   }
 
   /**
@@ -1041,6 +1088,14 @@ class TalkingHead {
 
     // Loader
     const loader = new GLTFLoader();
+
+    // Check if draco loading enabled
+    if ( this.dracoEnabled ) {
+      const dracoLoader = new DRACOLoader();
+      dracoLoader.setDecoderPath( this.dracoDecoderPath );
+      loader.setDRACOLoader( dracoLoader );
+    }
+
     let gltf = await loader.loadAsync( avatar.url, onprogress );
 
     // Check the gltf
@@ -1256,7 +1311,7 @@ class TalkingHead {
     x = x * z;
 
     this.controlsEnd = new THREE.Vector3(x, y, 0);
-    this.cameraEnd = new THREE.Vector3(x, y, z).applyEuler( new THREE.Euler( (opt.cameraRotateX || opt.cameraRotateX), (opt.cameraRotateY || this.opt.cameraRotateY), 0 ) );
+    this.cameraEnd = new THREE.Vector3(x, y, z).applyEuler( new THREE.Euler( (opt.cameraRotateX || this.opt.cameraRotateX), (opt.cameraRotateY || this.opt.cameraRotateY), 0 ) );
 
     if ( this.cameraClock === null ) {
       this.controls.target.copy( this.controlsEnd );
@@ -3193,6 +3248,257 @@ class TalkingHead {
     if ( this.armature ) {
       this.resetLips();
       this.render();
+    }
+  }
+
+  /**
+  * Start streaming mode.
+  * @param opt optional settings inlcude gain, sampleRate, lipsyncLang, and lipsyncType
+  * @onAudioStart optional callback when audio playback starts
+  * @onAudioEnd optional callback when audio streaming is automatically ended.
+  * @onSubtitles optional callback to play subtitles
+  */
+  async streamStart(opt = {}, onAudioStart = null, onAudioEnd = null, onSubtitles = null) {
+    this.stopSpeaking(); // Stop the speech queue mode
+
+    this.isStreaming = true;
+    this.isSpeaking = true;
+    this.stateName = "speaking";
+    this.streamAudioStartTime = 0;
+    this.streamLipsyncQueue = [];
+    this.streamLipsyncType = opt.lipsyncType || this.streamLipsyncType || 'visemes';
+    this.streamLipsyncLang = opt.lipsyncLang || this.streamLipsyncLang || this.avatar.lipsyncLang || this.opt.lipsyncLang;
+
+    if (opt.sampleRate !== undefined) {
+      const sr = opt.sampleRate;    
+      if (
+        typeof sr === 'number' &&
+        sr >= 8000 &&
+        sr <= 96000
+      ) {
+        if (sr !== this.audioCtx.sampleRate) {
+          this.initAudioGraph(sr);
+        }
+      } else {
+        console.warn(
+          'Invalid sampleRate provided. It must be a number between 8000 and 96000 Hz.'
+        );
+      }
+    }
+    
+    if (opt.gain !== undefined) {
+      this.audioStreamGainNode.gain.value = opt.gain;
+    }
+
+    if (!this.workletLoaded) {
+      try {
+        const loadPromise = this.audioCtx.audioWorklet.addModule(workletUrl.href);
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error("Worklet loading timed out")), 5000)
+        );
+        await Promise.race([loadPromise, timeoutPromise]);
+        this.workletLoaded = true;
+      } catch (error) {
+        console.error("Failed to load audio worklet:", error);
+        throw new Error("Failed to initialize streaming speech");
+      }
+    }
+
+    // Create and connect worklet node
+    this.streamWorkletNode = new AudioWorkletNode(this.audioCtx, 'playback-worklet');
+    
+    // Connect worklet through stream gain node for volume control
+    this.streamWorkletNode.connect(this.audioStreamGainNode);
+    this.streamWorkletNode.connect(this.audioAnalyzerNode);
+  
+    this.streamWorkletNode.port.onmessage = (event) => {
+
+      if(event.data.type === 'playback-started') {
+        this.streamAudioStartTime = this.animClock;
+        this._processStreamLipsyncQueue();
+        this.speakWithHands();
+        if (onAudioStart) onAudioStart();
+      }
+
+      if (event.data.type === 'playback-ended') {
+        this.streamStop();
+        if (onAudioEnd) onAudioEnd();
+      }
+    };
+
+    this.resetLips();
+    this.lookAtCamera(500);
+    opt.mood && this.setMood( opt.mood );
+    this.onSubtitles = onSubtitles || null;
+
+    // If Web Audio API is suspended, try to resume it
+    if ( this.audioCtx.state === "suspended" || this.audioCtx.state === "interrupted" ) {
+      const resume = this.audioCtx.resume();
+      const timeout = new Promise((_r, rej) => setTimeout(() => rej("p2"), 1000));
+      try {
+        await Promise.race([resume, timeout]);
+      } catch(e) {
+        console.log("Can't play audio. Web Audio API suspended. This is often due to calling some speak method before the first user action, which is typically prevented by the browser.");
+        return;
+      }
+    }
+  }
+
+  /**
+  * Notify if no more streaming data is coming.
+  * Actual stop occurs after audio playback.
+  */
+  streamNotifyEnd() {
+    if (!this.isStreaming || !this.streamWorkletNode) return;
+
+    this.streamWorkletNode.port.postMessage({ type: 'no-more-data' });
+  }
+
+
+  /**
+   * Stop streaming mode
+   */
+  streamStop() {
+    if (this.streamWorkletNode) {
+      try {
+        this.streamWorkletNode.disconnect();
+
+      } catch(e) { 
+        console.error('Error disconnecting streamWorkletNode:', e);
+        /* ignore */ 
+      }
+      this.streamWorkletNode = null;
+    }
+    this.isStreaming = false;
+    this.isSpeaking = false;
+    this.stateName = "idle";
+    this.streamAudioStartTime = 0;
+    if ( this.armature ) {
+      this.resetLips();
+      this.render();
+    }
+  }
+
+  /**
+ * Processes all lipsync data items currently in the streamLipsyncQueue.
+ * This is called once the actual audio start time is known.
+ * @private
+ */
+  _processStreamLipsyncQueue() {
+    // console.log(`[TalkingHead] Processing ${this.streamLipsyncQueue.length} queued lipsync items.`);
+    while (this.streamLipsyncQueue.length > 0) {
+      const lipsyncPayload = this.streamLipsyncQueue.shift();
+      // Pass the now confirmed streamAudioStartTime
+      this._processLipsyncData(lipsyncPayload, this.streamAudioStartTime);
+    }
+  }
+
+  /**
+   * Processes the lipsync data for the current audio stream.
+   * * @param {Object} r The lipsync data object.
+   * * @param {number} audioStart The start time of the audio stream.
+   * * @private
+   */
+  _processLipsyncData(r, audioStart) {
+    // Process visemes
+    if (r.visemes && this.streamLipsyncType == 'visemes') {
+      for (let i = 0; i < r.visemes.length; i++) {
+        const viseme = r.visemes[i];
+        const time = audioStart + r.vtimes[i];
+        const duration = r.vdurations[i];
+        const animObj = {
+          template: { name: 'viseme' },
+          ts: [time - 2 * duration / 3, time + duration / 2, time + duration + duration / 2],
+          vs: {
+            ['viseme_' + viseme]: [null, (viseme === 'PP' || viseme === 'FF') ? 0.9 : 0.6, 0]
+          }
+        }
+        this.animQueue.push(animObj);
+      }
+    }
+
+    // Process words
+    if (r.words && (this.onSubtitles || this.streamLipsyncType == "words")) {
+      for (let i = 0; i < r.words.length; i++) {
+        const word = r.words[i];
+        const time = r.wtimes[i];
+        let duration = r.wdurations[i];
+
+        if (word.length) {
+          // If subtitles callback is available, add the subtitles
+          if (this.onSubtitles) {
+            this.animQueue.push({
+              template: { name: 'subtitles' },
+              ts: [audioStart + time],
+              vs: {
+                subtitles: [' ' + word]
+              }
+            });
+          }
+
+          // Calculate visemes based on the words
+          if (this.streamLipsyncType == "words") {
+            const lipsyncLang = this.streamLipsyncLang || this.avatar.lipsyncLang || this.opt.lipsyncLang;
+            const wrd = this.lipsyncPreProcessText(word, lipsyncLang);
+            const val = this.lipsyncWordsToVisemes(wrd, lipsyncLang);
+            if (val && val.visemes && val.visemes.length) {
+              const dTotal = val.times[val.visemes.length - 1] + val.durations[val.visemes.length - 1];
+              const overdrive = Math.min(duration, Math.max(0, duration - val.visemes.length * 150));
+              let level = 0.6 + this.convertRange(overdrive, [0, duration], [0, 0.4]);
+              duration = Math.min(duration, val.visemes.length * 200);
+              if (dTotal > 0) {
+                for (let j = 0; j < val.visemes.length; j++) {
+                  const t = audioStart + time + (val.times[j] / dTotal) * duration;
+                  const d = (val.durations[j] / dTotal) * duration;
+                  this.animQueue.push({
+                    template: { name: 'viseme' },
+                    ts: [t - Math.min(60, 2 * d / 3), t + Math.min(25, d / 2), t + d + Math.min(60, d / 2)],
+                    vs: {
+                      ['viseme_' + val.visemes[j]]: [null, (val.visemes[j] === 'PP' || val.visemes[j] === 'FF') ? 0.9 : level, 0]
+                    }
+                  });
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // If blendshapes anims are provided, add them to animQueue
+    if (r.anims && this.streamLipsyncType == "blendshapes") {
+      for (let i = 0; i < r.anims.length; i++) {
+        let anim = r.anims[i];
+        anim.delay += audioStart;
+        let animObj = this.animFactory(anim, false, 1, 1, true);
+        this.animQueue.push(animObj);
+      }
+    }
+  }
+
+  /**
+  * stream audio and lipsync. Audio must be in 16 bit PCM format.
+  * @param r Audio object with viseme data.
+  */
+  streamAudio(r) {
+    if (!this.isStreaming || !this.streamWorkletNode) return;
+
+    if (r.audio instanceof ArrayBuffer) {
+        this.streamWorkletNode.port.postMessage(r.audio, [r.audio]);
+    } else if (r.audio instanceof Int16Array) {
+      // Fallback: r.audio is an Int16Array
+      this.streamWorkletNode.port.postMessage(r.audio); // No transfer list, so it gets cloned
+    } else {
+      console.error("r.audio is not an ArrayBuffer or Int16Array. Cannot process audio of this type:", r.audio);
+    }
+
+    if(r.visemes || r.anims || r.words) {
+      if(!this.streamAudioStartTime) {
+        // Lipsync data received before audio playback start. Queue the lipsync data.
+        this.streamLipsyncQueue.push(r);
+        return;
+      }
+      this._processLipsyncData(r, this.streamAudioStartTime);
     }
   }
 
